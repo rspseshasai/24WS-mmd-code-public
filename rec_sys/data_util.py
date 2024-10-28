@@ -143,7 +143,7 @@ def split_train_valid_test_tf(ratings_tf, config):
     """ Split the dataset into train, validation and test sets
     Args:
         ratings_tf: the dataset
-        split_ratios: a tuple with the fractions of the dataset to use for train, validation and test
+        config.split_ratios: a tuple with the fractions of the dataset to use for train, validation and test
     Returns:
         train_ds, valid_ds, test_ds: the datasets
     """

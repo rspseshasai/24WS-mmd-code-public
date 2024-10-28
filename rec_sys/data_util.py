@@ -139,7 +139,7 @@ def load_movielens_tf(config):
     return ratings, user_ids_voc, movie_ids_voc
 
 
-def split_train_valid_test_tf(ratings_tf, split_ratios):
+def split_train_valid_test_tf(ratings_tf, config):
     """ Split the dataset into train, validation and test sets
     Args:
         ratings_tf: the dataset
@@ -148,14 +148,14 @@ def split_train_valid_test_tf(ratings_tf, split_ratios):
         train_ds, valid_ds, test_ds: the datasets
     """
     num_samples = ratings_tf.cardinality().numpy()
-    print(f"Splitting the dataset into train, validation and test sets with sizes: {split_ratios}")
+    print(f"Splitting the dataset into train, validation and test sets with sizes: {config.split_ratios}")
 
     # Shuffle the dataset
-    ratings_tf = ratings_tf.shuffle(num_samples, seed=42, reshuffle_each_iteration=False)
+    ratings_tf = ratings_tf.shuffle(num_samples, seed=config.split_shuffle_seed, reshuffle_each_iteration=False)
 
     # Split the dataset
-    train_size = int(num_samples * split_ratios[0])
-    valid_size = int(num_samples * split_ratios[1])
+    train_size = int(num_samples * config.split_ratios[0])
+    valid_size = int(num_samples * config.split_ratios[1])
     test_size = num_samples - train_size - valid_size
 
     train_ds = ratings_tf.take(train_size)
@@ -174,12 +174,12 @@ if __name__ == '__main__':
     # um_lecture = get_um_by_name(ConfigCf, "lecture_1")
 
     # Test the TF dataset loading
-    from config import ConfigLf
+    from config import ConfigLf as config
 
-    ratings_tf, user_ids_voc, movie_ids_voc = load_movielens_tf(ConfigLf)
+    ratings_tf, user_ids_voc, movie_ids_voc = load_movielens_tf(config)
 
     # Split the dataset
-    train_ds, valid_ds, test_ds = split_train_valid_test_tf(ratings_tf, ConfigLf.split_ratios)
+    train_ds, valid_ds, test_ds = split_train_valid_test_tf(ratings_tf, config.split_ratios)
     print_sample_of_tf_dataset(train_ds, "Training:")
     print_sample_of_tf_dataset(valid_ds, "Validation:")
     print_sample_of_tf_dataset(test_ds, "Test:")

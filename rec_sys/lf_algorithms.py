@@ -3,11 +3,10 @@
 
 # Limit size of GPU memory pre-allocated by jax
 import os
+
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 import dataclasses
-import jax
-import jax.numpy as jnp
 import tensorflow_datasets as tfds
 
 
@@ -64,13 +63,26 @@ def mse_loss_all_batches(mat_u, mat_v, dataset, batch_size):
     return mse_all_batches
 
 
-@jax.jit  # Comment out for single-step debugging
+import jax
+import jax.numpy as jnp
+from memory_profiler import profile
+
+
+@profile
+def calculate_estimator(mat_u, mat_v, rows, columns):
+    # Compute only necessary entries instead of full matrix multiplication
+    relevant_entries = jnp.array([mat_u[rows[i]] @ mat_v[:, columns[i]] for i in range(len(rows))])
+    return -relevant_entries  # Sign change for MSE calculation
+
+
+@jax.jit  # Test with JAX jit to improve speed and potential memory efficiency
+@profile
 def mse_loss_one_batch(mat_u, mat_v, record):
-    """This colab experiment motivates the implementation:
-    https://colab.research.google.com/drive/1c0LpSndbTJaHVoLTatQCbGhlsWbpgvYh?usp&#x3D;sharing=
-    """
+    # Extract relevant fields
     rows, columns, ratings = record["movie_id"], record["user_id"], record["user_rating"]
-    estimator = -(mat_u @ mat_v)[(rows, columns)]
+
+    # Use optimized calculate_estimator to reduce memory footprint
+    estimator = calculate_estimator(mat_u, mat_v, rows, columns)
     square_err = jnp.square(estimator + ratings)
     mse = jnp.mean(square_err)
     return mse

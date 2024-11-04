@@ -1,21 +1,33 @@
-# Artur Andrzejak, October 2024
+# Pavan, October 2024
 # Algorithms for collaborative filtering
-
+# Implement the CF from the lecture 1
 import numpy as np
-
-def complete_code(message):
-    raise Exception(f"Please complete the code: {message}")
-    return None
 
 
 def center_and_nan_to_zero(matrix, axis=0):
-    """ Center the matrix and replace nan values with zeros"""
-    # Compute along axis 'axis' the mean of non-nan values
-    # E.g. axis=0: mean of each column, since op is along rows (axis=0)
-    means = np.nanmean(matrix, axis=axis)
-    # Subtract the mean from each axis
-    matrix_centered = matrix - means
-    return np.nan_to_num(matrix_centered)
+    """ Center the matrix and replace NaN values with zeros. Handles both dense and sparse matrices. """
+    if issparse(matrix):
+        # Convert sparse matrix to dense for mean calculation
+        dense_matrix = matrix.toarray()
+    else:
+        dense_matrix = matrix
+
+    # Compute mean of non-NaN values along the specified axis
+    means = np.nanmean(dense_matrix, axis=axis)
+
+    # Center the matrix by subtracting the means
+    if axis == 0:  # Mean across rows
+        centered_matrix = dense_matrix - means[np.newaxis, :]  # Broadcasting for rows
+    else:  # Mean across columns
+        centered_matrix = dense_matrix - means[:, np.newaxis]  # Broadcasting for columns
+
+    # Replace NaNs with zeros
+    centered_matrix = np.nan_to_num(centered_matrix)
+
+    # Convert back to sparse matrix if the input was sparse
+    if issparse(matrix):
+        return csr_matrix(centered_matrix)
+    return centered_matrix
 
 
 def cosine_sim(u, v):
@@ -28,49 +40,125 @@ def fast_cosine_sim(utility_matrix, vector, axis=0):
     norms = np.linalg.norm(utility_matrix, axis=axis)
     um_normalized = utility_matrix / norms
     # Compute the dot product of transposed normalized matrix and the vector
-    dot = complete_code("fast_cosine_sim")
+    dot = np.dot(np.transpose(um_normalized), vector)
     # Scale by the vector norm
     scaled = dot / np.linalg.norm(vector)
     return scaled
 
 
-# Implement the CF from the lecture 1
-def rate_all_items(orig_utility_matrix, user_index, neighborhood_size):
-    print(f"\n>>> CF computation for UM w/ shape: "
-          + f"{orig_utility_matrix.shape}, user_index: {user_index}, neighborhood_size: {neighborhood_size}\n")
+def centered_cosine_sim(vector_a, vector_b):
+    # Convert vectors to 2D sparse matrices for compatibility
+    matrix_a = csr_matrix(vector_a)
+    matrix_b = csr_matrix(vector_b)
 
-    clean_utility_matrix = center_and_nan_to_zero(orig_utility_matrix)
-    """ Compute the rating of all items not yet rated by the user"""
-    user_col = clean_utility_matrix[:, user_index]
-    # Compute the cosine similarity between the user and all other users
-    similarities = fast_cosine_sim(clean_utility_matrix, user_col)
+    # Center the vectors using center_and_nan_to_zero
+    centered_a = center_and_nan_to_zero(matrix_a, axis=1).toarray().flatten()
+    centered_b = center_and_nan_to_zero(matrix_b, axis=1).toarray().flatten()
 
-    def rate_one_item(item_index):
-        # If the user has already rated the item, return the rating
-        if not np.isnan(orig_utility_matrix[item_index, user_index]):
-            return orig_utility_matrix[item_index, user_index]
+    # Compute cosine similarity
+    numerator = np.dot(centered_a, centered_b)
+    denominator = np.linalg.norm(centered_a) * np.linalg.norm(centered_b)
 
-        # Find the indices of users who rated the item
-        users_who_rated = np.where(np.isnan(orig_utility_matrix[item_index, :]) == False)[0]
-        # From those, get indices of users with the highest similarity (watch out: result indices are rel. to users_who_rated)
-        best_among_who_rated = complete_code("users with highest similarity")
-        # Select top neighborhood_size of them
-        best_among_who_rated = best_among_who_rated[-neighborhood_size:]
-        # Convert the indices back to the original utility matrix indices
-        best_among_who_rated = users_who_rated[best_among_who_rated]
-        # Retain only those indices where the similarity is not nan
-        best_among_who_rated = best_among_who_rated[np.isnan(similarities[best_among_who_rated]) == False]
-        if best_among_who_rated.size > 0:
-            # Compute the rating of the item
-            rating_of_item = complete_code("compute the ratings")
+    return numerator / denominator if denominator != 0 else 0
+
+
+def fast_centered_cosine_sim(matrix, vector):
+    # Ensure vector is 2D for compatibility
+    if vector.ndim == 1:
+        vector = vector[np.newaxis, :]  # Convert to 2D if it’s 1D
+
+    # Center the vector (convert to dense array if sparse)
+    if hasattr(vector, "toarray"):
+        centered_vector = center_and_nan_to_zero(vector, axis=1).toarray().flatten()
+    else:
+        centered_vector = center_and_nan_to_zero(vector, axis=1).flatten()
+
+    similarities = []
+    for i in range(matrix.shape[0]):
+        # Check if matrix is sparse and access rows accordingly
+        row = matrix.getrow(i) if hasattr(matrix, "getrow") else matrix[i, :]
+
+        # Ensure row is 2D before centering and convert to dense if sparse
+        if row.ndim == 1:
+            row = row[np.newaxis, :]  # Convert to 2D if it’s 1D
+        if hasattr(row, "toarray"):
+            centered_row = center_and_nan_to_zero(row, axis=1).toarray().flatten()
         else:
-            rating_of_item = np.nan
-        print(f"item_idx: {item_index}, neighbors: {best_among_who_rated}, rating: {rating_of_item}")
-        return rating_of_item
+            centered_row = center_and_nan_to_zero(row, axis=1).flatten()
 
-    num_items = orig_utility_matrix.shape[0]
+        # Calculate cosine similarity
+        numerator = np.dot(centered_row, centered_vector)
+        denominator = np.linalg.norm(centered_row) * np.linalg.norm(centered_vector)
 
-    # Get all ratings
-    ratings = list(map(rate_one_item, range(num_items)))
-    return ratings
+        similarity = numerator / denominator if denominator != 0 else 0
+        similarities.append(similarity)
 
+    return np.array(similarities)
+
+
+from scipy.sparse import csr_matrix, issparse
+
+
+def rate_all_items(utility_matrix, user_index, neighborhood_size):
+    # Determine if the utility matrix is sparse or dense
+    is_sparse = hasattr(utility_matrix, 'nnz')  # Check if it's a sparse matrix
+
+    if is_sparse:
+        clean_utility_matrix = utility_matrix.tocsr()
+    else:
+        clean_utility_matrix = utility_matrix  # Already a dense matrix
+
+    # Get the user's ratings
+    user_ratings = clean_utility_matrix[user_index]
+
+    # Convert to 1D array if the utility matrix is dense
+    if not is_sparse:
+        user_ratings = user_ratings.flatten()
+    else:
+        # If sparse, convert to dense for further processing
+        user_ratings = user_ratings.toarray().flatten()  # Use toarray() instead of .A
+
+    # Identify which items the user has rated
+    rated_items = np.where(user_ratings > 0)[0]
+    num_rated_items = len(rated_items)
+
+    if num_rated_items == 0:
+        return np.full(clean_utility_matrix.shape[1], np.nan)
+
+    # Calculate similarities
+    similarities = fast_centered_cosine_sim(clean_utility_matrix, user_ratings)
+
+    # Get indices of the best neighbors based on similarity
+    best_indices = np.argsort(similarities)[-neighborhood_size:][::-1]  # Highest similarities first
+    best_among_who_rated = np.intersect1d(best_indices, rated_items)
+
+    if best_among_who_rated.size == 0:
+        return np.full(clean_utility_matrix.shape[1], np.nan)
+
+    # Calculate the predicted rating for each item
+    predicted_ratings = np.zeros(clean_utility_matrix.shape[1])
+
+    for item_index in range(clean_utility_matrix.shape[1]):
+        # Only compute ratings for items not already rated by the user
+        if item_index not in rated_items:
+            # Compute the rating based on neighbors
+            if is_sparse:
+                # For sparse matrix, use toarray() to convert to dense
+                rating_of_item = np.sum(similarities[best_among_who_rated] * clean_utility_matrix[
+                    best_among_who_rated, item_index].toarray().flatten())
+            else:
+                # For dense matrix, simply use indexing
+                rating_of_item = np.sum(
+                    similarities[best_among_who_rated] * clean_utility_matrix[best_among_who_rated, item_index])
+
+            denominator = np.sum(similarities[best_among_who_rated])
+
+            if denominator == 0:
+                predicted_ratings[item_index] = np.nan
+            else:
+                predicted_ratings[item_index] = rating_of_item / denominator
+
+            if np.isinf(predicted_ratings[item_index]):
+                predicted_ratings[item_index] = np.nan
+
+    return predicted_ratings
